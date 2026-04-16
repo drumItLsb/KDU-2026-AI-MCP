@@ -140,6 +140,111 @@ def extract_skills_with_langchain(resume_text, llm):
     except Exception as e:
         return f"Error extracting skills: {str(e)}"
 
+
+def extract_candidate_snapshot(resume_text, llm):
+    """Build a recruiter-friendly candidate snapshot from resume text."""
+    if not llm:
+        return "LangChain LLM not available for candidate snapshot."
+
+    try:
+        prompt = PromptTemplate.from_template(
+            """
+            You are helping a recruiter quickly understand a candidate from a resume.
+
+            Resume:
+            {resume_text}
+
+            Create a concise candidate snapshot with these sections:
+            1. Candidate Name
+            2. Current Status
+            3. Target Roles
+            4. Experience Level
+            5. Top Skills
+            6. Education
+            7. One-Line Recruiter Summary
+
+            Rules:
+            - If a field is unclear, say "Not clearly stated".
+            - Keep each section short and recruiter-friendly.
+            """
+        )
+
+        chain = prompt | llm | StrOutputParser()
+        return chain.invoke({"resume_text": resume_text})
+
+    except Exception as e:
+        return f"Error creating candidate snapshot: {str(e)}"
+
+
+def extract_candidate_projects(resume_text, llm):
+    """Extract and summarize candidate projects from resume text."""
+    if not llm:
+        return "LangChain LLM not available for project extraction."
+
+    try:
+        prompt = PromptTemplate.from_template(
+            """
+            You are helping a recruiter identify the most relevant projects from a candidate's resume.
+
+            Resume:
+            {resume_text}
+
+            Extract the candidate's projects and format each one with:
+            1. Project Name
+            2. What the project does
+            3. Technologies used
+            4. Candidate contribution or impact
+
+            Rules:
+            - If project names are not explicit, provide a short descriptive name.
+            - If only limited details are available, state "Not clearly stated".
+            - Keep each project summary concise and recruiter-friendly.
+            """
+        )
+
+        chain = prompt | llm | StrOutputParser()
+        return chain.invoke({"resume_text": resume_text})
+
+    except Exception as e:
+        return f"Error extracting candidate projects: {str(e)}"
+
+
+def generate_interview_focus_areas(resume_text, job_description, llm):
+    """Generate practical interview focus areas for a candidate and job."""
+    if not llm:
+        return "LangChain LLM not available for interview focus generation."
+
+    try:
+        prompt = PromptTemplate.from_template(
+            """
+            You are a hiring manager preparing an interview plan.
+
+            Resume:
+            {resume_text}
+
+            Job Description:
+            {job_description}
+
+            Provide:
+            1. Top 3 areas to validate in the interview
+            2. 5 tailored interview questions
+            3. 3 possible risk areas or follow-up concerns
+
+            Keep the output practical and specific to the candidate.
+            """
+        )
+
+        chain = prompt | llm | StrOutputParser()
+        return chain.invoke(
+            {
+                "resume_text": resume_text,
+                "job_description": job_description,
+            }
+        )
+
+    except Exception as e:
+        return f"Error generating interview focus areas: {str(e)}"
+
 def assess_resume_for_job(resume_text, job_description, llm):
     """Assess how well a resume matches a job description.
     

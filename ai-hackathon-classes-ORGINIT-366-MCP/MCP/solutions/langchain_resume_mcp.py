@@ -28,7 +28,10 @@ from utils.langchain_utils import (
     prepare_resume_documents,
     find_relevant_sections,
     extract_skills_with_langchain,
-    assess_resume_for_job
+    assess_resume_for_job,
+    extract_candidate_snapshot,
+    extract_candidate_projects,
+    generate_interview_focus_areas,
 )
 
 from dotenv import load_dotenv
@@ -61,6 +64,32 @@ class ExtractSkills(BaseModel):
     file_path: Annotated[str, Field(description="Path to the resume PDF file")]
 
 
+class CandidateSnapshot(BaseModel):
+    file_path: Annotated[str, Field(description="Path to the resume PDF file")]
+
+
+class CandidateProjects(BaseModel):
+    file_path: Annotated[str, Field(description="Path to the resume PDF file")]
+
+
+class InterviewFocus(BaseModel):
+    file_path: Annotated[str, Field(description="Path to the resume PDF file")]
+    job_description: Annotated[str, Field(description="Job description to tailor interview focus areas")]
+
+
+def get_resume_text_or_raise(file_path: str) -> str:
+    """Resolve and read a resume file, raising MCP errors on failure."""
+    full_path = os.path.join(RESUME_DIR, file_path) if not os.path.isabs(file_path) else file_path
+    if not os.path.exists(full_path):
+        raise McpError(INVALID_PARAMS, f"Resume file not found: {file_path}")
+
+    resume_text = read_resume(file_path, RESUME_DIR)
+    if not resume_text:
+        raise McpError(INVALID_PARAMS, f"Failed to read resume: {file_path}")
+
+    return resume_text
+
+
 # MCP Tool implementation
 @server.list_tools()
 async def list_tools():
@@ -75,6 +104,21 @@ async def list_tools():
             description="Extract skills from a resume",
             inputSchema=ExtractSkills.model_json_schema(),
         ),
+        Tool(
+            name="candidate_snapshot",
+            description="Summarize a candidate's current status, target roles, and key profile details",
+            inputSchema=CandidateSnapshot.model_json_schema(),
+        ),
+        Tool(
+            name="list_projects",
+            description="List and summarize the candidate's projects from a resume",
+            inputSchema=CandidateProjects.model_json_schema(),
+        ),
+        Tool(
+            name="interview_focus",
+            description="Generate tailored interview focus areas and questions for a resume against a job description",
+            inputSchema=InterviewFocus.model_json_schema(),
+        ),
     ]
 
 @server.call_tool()
@@ -88,17 +132,9 @@ async def call_tool(name, arguments):
             
         file_path = args.file_path
         job_description = args.job_description
-        
-        full_path = os.path.join(RESUME_DIR, file_path) if not os.path.isabs(file_path) else file_path
-        if not os.path.exists(full_path):
-            raise McpError(INVALID_PARAMS, f"Resume file not found: {file_path}")
-        
+
         filename = os.path.basename(file_path)
-        
-        # Step 1: Read raw text
-        resume_text = read_resume(file_path, RESUME_DIR)
-        if not resume_text:
-            raise McpError(INVALID_PARAMS, f"Failed to read resume: {file_path}")
+        resume_text = get_resume_text_or_raise(file_path)
         
         # Step 2: Chunk and wrap in Documents (no embedding here)
         processed_resume = prepare_resume_documents(resume_text, filename)
@@ -131,16 +167,7 @@ async def call_tool(name, arguments):
             raise McpError(INVALID_PARAMS, str(e))
             
         file_path = args.file_path
-        
-        # Check if file exists
-        full_path = os.path.join(RESUME_DIR, file_path) if not os.path.isabs(file_path) else file_path
-        if not os.path.exists(full_path):
-            raise McpError(INVALID_PARAMS, f"Resume file not found: {file_path}")
-        
-        # Read the resume
-        resume_text = read_resume(file_path, RESUME_DIR)
-        if not resume_text:
-            raise McpError(INVALID_PARAMS, f"Failed to read resume: {file_path}")
+        resume_text = get_resume_text_or_raise(file_path)
         
         # Extract skills using LangChain
         skills = extract_skills_with_langchain(resume_text, llm)
@@ -149,6 +176,46 @@ async def call_tool(name, arguments):
         response = f"Skills Extracted from '{file_path}':\n\n"
         response += skills
             
+        return [TextContent(type="text", text=response)]
+
+    elif name == "candidate_snapshot":
+        try:
+            args = CandidateSnapshot(**arguments)
+        except ValueError as e:
+            raise McpError(INVALID_PARAMS, str(e))
+
+        file_path = args.file_path
+        resume_text = get_resume_text_or_raise(file_path)
+        snapshot = extract_candidate_snapshot(resume_text, llm)
+
+        response = f"Candidate Snapshot for '{file_path}':\n\n{snapshot}"
+        return [TextContent(type="text", text=response)]
+
+    elif name == "list_projects":
+        try:
+            args = CandidateProjects(**arguments)
+        except ValueError as e:
+            raise McpError(INVALID_PARAMS, str(e))
+
+        file_path = args.file_path
+        resume_text = get_resume_text_or_raise(file_path)
+        projects = extract_candidate_projects(resume_text, llm)
+
+        response = f"Candidate Projects for '{file_path}':\n\n{projects}"
+        return [TextContent(type="text", text=response)]
+
+    elif name == "interview_focus":
+        try:
+            args = InterviewFocus(**arguments)
+        except ValueError as e:
+            raise McpError(INVALID_PARAMS, str(e))
+
+        file_path = args.file_path
+        job_description = args.job_description
+        resume_text = get_resume_text_or_raise(file_path)
+        interview_plan = generate_interview_focus_areas(resume_text, job_description, llm)
+
+        response = f"Interview Focus for '{file_path}':\n\n{interview_plan}"
         return [TextContent(type="text", text=response)]
     
     else:
